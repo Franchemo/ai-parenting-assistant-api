@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from openai import OpenAI
@@ -44,14 +45,6 @@ class ChatRequest(BaseModel):
     question_type: str
     subcategory: Optional[str] = None
 
-# Error handler
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc)},
-    )
-
 # Health check endpoint
 @app.get("/")
 async def root():
@@ -75,7 +68,6 @@ async def health_check():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI connection failed: {str(e)}")
 
-
 @app.post("/api/thread")
 async def create_thread():
     """Create a new chat thread"""
@@ -89,6 +81,10 @@ async def create_thread():
 async def chat(request: ChatRequest):
     """Process chat messages and return AI responses"""
     try:
+        # Validate OpenAI configuration
+        if not os.getenv("OPENAI_API_KEY") or not ASSISTANT_ID:
+            raise HTTPException(status_code=500, detail="OpenAI configuration missing")
+
         # Create thread if not provided
         thread_id = request.thread_id
         if not thread_id:
@@ -113,7 +109,7 @@ Question: {request.message}
 """
 
         # Add message to thread
-        client.beta.threads.messages.create(
+        message = client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=user_info_str
@@ -125,27 +121,22 @@ Question: {request.message}
             assistant_id=ASSISTANT_ID
         )
 
-        # Wait for completion
         # Wait for completion with timeout
         start_time = time.time()
         timeout = 30  # 30 seconds timeout
         
         while run.status not in ["completed", "failed"]:
             if time.time() - start_time > timeout:
-                raise HTTPException(
-                    status_code=504,
-                    detail="Request timeout - Assistant took too long to respond"
-                )
+                raise HTTPException(status_code=504, detail="Request timeout - Assistant took too long to respond")
             
             run = client.beta.threads.runs.retrieve(
                 thread_id=thread_id,
                 run_id=run.id
             )
+            
             if run.status == "failed":
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Assistant failed to generate response: {run.last_error}"
-                )
+                raise HTTPException(status_code=500, detail="Assistant failed to generate response")
+            
             # Small delay to prevent too frequent API calls
             time.sleep(0.5)
 
@@ -159,11 +150,11 @@ Question: {request.message}
             "thread_id": thread_id
         }
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)
-                                
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/clear")
 async def clear_chat(thread_id: str):
     """Clear chat history by creating a new thread"""
@@ -172,7 +163,6 @@ async def clear_chat(thread_id: str):
         return {"thread_id": new_thread.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # Startup event
 @app.on_event("startup")
@@ -183,14 +173,7 @@ async def startup_event():
     if not ASSISTANT_ID:
         raise RuntimeError("OPENAI_ASSISTANT_ID environment variable is not set")
 
-
-
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        timeout_keep_alive=30
-    )
+    uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=30)
