@@ -234,6 +234,7 @@ asyncio.run(test_connection())
      - Connection alerts
      - Performance alerts
 2. Configure email notifications for alerts
+（免费版可能没有）
 
 ### 11. Backup Configuration
 1. In MongoDB Atlas:
