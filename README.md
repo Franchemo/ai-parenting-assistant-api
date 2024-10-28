@@ -1,111 +1,258 @@
-# AI Parenting Assistant Backend API
+# AI Parenting Assistant Backend
 
-This is the backend API service for the AI Parenting Assistant WeChat Mini Program. It handles communication between the Mini Program and OpenAI's API.
+## Detailed MongoDB Connection Steps
 
-## Prerequisites
+### 1. Create MongoDB Atlas Account and Cluster
+1. Go to MongoDB Atlas (https://www.mongodb.com/cloud/atlas)
+2. Sign up or log in
+3. Create a new project (if needed)
+4. Build a database:
+   - Choose "FREE" shared cluster
+   - Select cloud provider & region
+   - Choose M0 Sandbox (Free)
+   - Name your cluster (e.g., "ParentAssistant")
 
-- Python 3.8 or higher
-- pip (Python package installer)
-- OpenAI API key
-- OpenAI Assistant ID
+### 2. Set Up Database Access
+1. In the left sidebar, click "Database Access"
+2. Click "Add New Database User"
+3. Choose "Password" authentication
+4. Enter username and password
+   - Username: e.g., "parentassistant_admin"
+   - Password: Generate a secure password
+5. Set database user privileges:
+   - Choose "Built-in Role"
+   - Select "Atlas admin" for development (restrict for production)
+6. Click "Add User"
 
-## Setup
+### 3. Configure Network Access
+1. In the left sidebar, click "Network Access"
+2. Click "Add IP Address"
+3. For development:
+   - Click "Allow Access from Anywhere"
+   - Click "Confirm"
+4. For production:
+   - Add specific IP addresses for Railway deployment (what does this mean)
 
-1. Clone the repository and navigate to the backend_api directory:
-```bash
-cd backend_api
+### 4. Get Connection String
+1. Go back to "Database" in sidebar
+2. Click "Connect" on your cluster
+3. Choose "Connect your application"
+4. Select "Python" as your driver and "3.12 or later"
+5. Copy the connection string:
+   ```
+   mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+   ```
+    
+### 5. Set Up Environment Variables
+1. Create/edit `.env` file in backend_api folder:
+   ```
+   MONGODB_URL=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/parentassistant?retryWrites=true&w=majority
+   ```
+   Replace:
+   - `<username>` with your database username
+   - `<password>` with your database password
+   - `<cluster>` will already be filled with your cluster name
+
+2. For Railway deployment:
+   - Go to Railway dashboard
+   - Select your project
+   - Go to "Variables"
+   - Add MONGODB_URL with the same connection string
+
+### 6. Initialize Database Collections
+1. In MongoDB Atlas:
+   - Click "Browse Collections"
+   - Click "Create Database"
+   - Database name: "parentassistant"
+   - Collection name: "users"
+   - Click "Create"
+
+2. Create remaining collections:
+   - Click "Create Collection"
+   - Add: "threads"
+   - Add: "messages"
+   - Add: "responses"
+   - Add: "user_profiles"
+
+### 7. Create Indexes
+1. In MongoDB Atlas Shell or Compass, run these commands:
+```javascript
+// Users collection
+db.users.createIndex({ "created_at": 1 });
+db.users.createIndex({ "last_login": 1 });
+
+// Threads collection
+db.threads.createIndex({ "user_id": 1 });
+db.threads.createIndex({ "thread_id": 1 });
+db.threads.createIndex({ "created_at": 1 });
+
+// Messages collection
+db.messages.createIndex({ "thread_id": 1 });
+db.messages.createIndex({ "user_id": 1 });
+db.messages.createIndex({ "created_at": 1 });
+db.messages.createIndex({ "question_type": 1 });
+
+// Responses collection
+db.responses.createIndex({ "thread_id": 1 });
+db.responses.createIndex({ "user_id": 1 });
+db.responses.createIndex({ "created_at": 1 });
+
+// User profiles collection
+db.user_profiles.createIndex({ "user_id": 1 });
+db.user_profiles.createIndex({ "updated_at": 1 });
 ```
 
-2. Create a virtual environment and activate it:
-```bash
-# On macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
+### 8. Verify Connection
+1. Run this test script to verify connection:
+```python
+import motor.motor_asyncio
+from dotenv import load_dotenv
+import os
+import asyncio
 
-# On Windows
-python -m venv venv
-.\venv\Scripts\activate
+async def test_connection():
+    # Load environment variables
+    load_dotenv()
+    
+    # Get MongoDB URL
+    mongodb_url = os.getenv("MONGODB_URL")
+    
+    try:
+        # Create client
+        client = motor.motor_asyncio.AsyncIOMotorClient(mongodb_url)
+        
+        # Get database
+        db = client.parentassistant
+        
+        # Test connection with simple operation
+        await db.users.find_one({})
+        
+        print("Successfully connected to MongoDB!")
+        
+        # List all collections
+        collections = await db.list_collection_names()
+        print("Available collections:", collections)
+        
+    except Exception as e:
+        print("Connection failed:", str(e))
+    
+    finally:
+        client.close()
+
+# Run the test
+asyncio.run(test_connection())
 ```
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+### 9. Database Schema
 
-4. Create a .env file:
-```bash
-cp .env.example .env
-```
-
-5. Edit the .env file with your actual credentials:
-```
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_ASSISTANT_ID=your_assistant_id_here
-```
-
-## Running the Server
-
-1. Start the server:
-```bash
-cd app
-uvicorn main:app --reload
-```
-
-The API will be available at `http://localhost:8000`
-
-## API Endpoints
-
-- `GET /` - Health check endpoint
-- `POST /api/thread` - Create a new chat thread
-- `POST /api/chat` - Send a message and get AI response
-- `POST /api/clear` - Clear chat history
-
-## Testing the API
-
-You can test the API using the built-in Swagger documentation at `http://localhost:8000/docs`
-
-## Deployment
-
-For production deployment:
-
-1. Set up a server (e.g., AWS EC2, DigitalOcean Droplet)
-2. Install required dependencies
-3. Set up a reverse proxy (e.g., Nginx)
-4. Use a process manager (e.g., PM2, Supervisor)
-5. Configure SSL certificates
-6. Update CORS settings in main.py with your Mini Program's domain
-
-Example Nginx configuration:
-```nginx
-server {
-    listen 80;
-    server_name your_domain.com;
-
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+#### users Collection
+```json
+{
+  "_id": ObjectId,
+  "wechat_info": {
+    "nickName": "string",
+    "avatarUrl": "string",
+    "gender": number,
+    "country": "string",
+    "province": "string",
+    "city": "string",
+    "language": "string"
+  },
+  "created_at": DateTime,
+  "last_login": DateTime
 }
 ```
 
-## Security Notes
-
-1. Never commit your .env file
-2. Use HTTPS in production
-3. Implement rate limiting
-4. Add proper authentication for production use
-5. Update CORS settings for production
-
-## Integration with WeChat Mini Program
-
-Update the BASE_URL in your Mini Program's api.js:
-
-```javascript
-// wechat_miniprogram/utils/api.js
-const BASE_URL = 'https://your-api-domain.com/api';
+#### threads Collection
+```json
+{
+  "_id": ObjectId,
+  "thread_id": "string",
+  "user_id": "string",
+  "created_at": DateTime
+}
 ```
 
-## Support
+#### messages Collection
+```json
+{
+  "_id": ObjectId,
+  "thread_id": "string",
+  "user_id": "string",
+  "message": "string",
+  "user_info": {
+    "childAge": "string",
+    "childPersonality": "string",
+    "kindergarten": "string",
+    "interests": "string",
+    "languages": "string",
+    "familyMembers": number,
+    "hasSiblings": "string",
+    "siblingsAge": "string"
+  },
+  "question_type": "string",
+  "subcategory": "string",
+  "created_at": DateTime
+}
+```
 
-For issues or questions, please create an issue in the repository.
+#### responses Collection
+```json
+{
+  "_id": ObjectId,
+  "thread_id": "string",
+  "user_id": "string",
+  "message": "string",
+  "created_at": DateTime
+}
+```
+
+#### user_profiles Collection
+```json
+{
+  "_id": ObjectId,
+  "user_id": "string",
+  "child_info": {
+    "age": "string",
+    "personality": "string",
+    "kindergarten": "string",
+    "interests": "string",
+    "languages": "string",
+    "familyMembers": number,
+    "hasSiblings": "string",
+    "siblingsAge": "string"
+  },
+  "updated_at": DateTime
+}
+```
+
+### 10. Monitoring Setup
+1. In MongoDB Atlas:
+   - Go to "Monitoring" in sidebar
+   - Set up alerts:
+     - Database metrics
+     - Connection alerts
+     - Performance alerts
+2. Configure email notifications for alerts
+
+### 11. Backup Configuration
+1. In MongoDB Atlas:
+   - Go to "Backup" in sidebar
+   - Enable continuous backup
+   - Set retention period (7 days recommended)
+   - Configure point-in-time recovery
+   - Set up scheduled snapshots
+
+### 12. Best Practices
+1. Connection Management:
+   - Use connection pooling
+   - Implement retry logic
+   - Handle connection timeouts
+2. Security:
+   - Regularly rotate database credentials
+   - Use least privilege access
+   - Monitor access logs
+3. Performance:
+   - Use appropriate indexes
+   - Monitor query performance
+   - Implement caching where appropriate
